@@ -1,70 +1,152 @@
-# Getting Started with Create React App
+// import fs from 'fs/promises';
+// import path from 'path';
+// import epub from 'epub';
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+// async function convertEpubToHtml(epubPath, outputPath) {
+//     try {
+//         // Check if the EPUB file exists
+//         await fs.access(epubPath);
 
-## Available Scripts
+//         const book = new epub(epubPath);
 
-In the project directory, you can run:
+//         book.on('error', (err) => {
+//             console.error('Error:', err);
+//         });
 
-### `npm start`
+//         book.on('end', async () => {
+//             let htmlContent = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>EPUB to HTML</title></head><body>';
+            
+//             for (const id of book.flow) {
+//                 const chapter = await new Promise((resolve, reject) => {
+//                     book.getChapter(id.id, (err, text) => {
+//                         if (err) {
+//                             reject(err);
+//                         } else {
+//                             resolve(text);
+//                         }
+//                     });
+//                 });
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+//                 htmlContent += `<div>${chapter}</div>`;
+//             }
+            
+//             htmlContent += '</body></html>';
+            
+//             // Write the HTML content to a file
+//             await fs.writeFile(outputPath, htmlContent);
+//             console.log('EPUB converted to HTML successfully');
+//         });
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+//         book.parse();
+//     } catch (error) {
+//         console.error('Error converting EPUB to HTML:', error);
+//     }
+// }
 
-### `npm test`
+// // Convert an EPUB file to HTML
+// const epubPath = path.resolve('sample1.epub'); // Replace with the absolute path to your EPUB file
+// const outputPath = path.resolve('./output1.html'); // Replace with the desired output path for the HTML file
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+// convertEpubToHtml(epubPath, outputPath);
 
-### `npm run build`
+import { promises as fsPromises, createReadStream, createWriteStream, constants } from 'fs';
+import path from 'path';
+import epub from 'epub';
+import unzipper from 'unzipper';
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+async function extractCssFromEpub(epubPath, outputDir) {
+    try {
+        // Create output directory if it doesn't exist
+        await fsPromises.mkdir(outputDir, { recursive: true });
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+        // Extract CSS files from EPUB
+        await createReadStream(epubPath)
+            .pipe(unzipper.Parse())
+            .on('entry', async (entry) => {
+                const fileName = entry.path;
+                const fileType = entry.type; // 'Directory' or 'File'
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+                // Check if the entry is a CSS file
+                if (fileType === 'File' && fileName.toLowerCase().endsWith('.css')) {
+                    // Extract the CSS file
+                    const outputPath = path.join(outputDir, path.basename(fileName));
+                    await new Promise((resolve, reject) => {
+                        entry.pipe(createWriteStream(outputPath))
+                            .on('finish', resolve)
+                            .on('error', reject);
+                    });
+                    console.log(`Extracted CSS file: ${outputPath}`);
+                } else {
+                    // Consume entry stream to move to the next entry
+                    entry.autodrain();
+                }
+            })
+            .promise();
 
-### `npm run eject`
+        console.log('CSS files extracted successfully');
+    } catch (error) {
+        console.error('Error extracting CSS from EPUB:', error);
+    }
+}
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+async function convertEpubToHtml(epubPath, outputDir, cssDir) {
+    try {
+        // Check if the EPUB file exists
+        await fsPromises.access(epubPath, constants.F_OK);
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+        const book = new epub(epubPath);
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+        book.on('error', (err) => {
+            console.error('Error:', err);
+        });
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+        book.on('end', async () => {
+            // Extract CSS files from EPUB
+            await extractCssFromEpub(epubPath, cssDir);
 
-## Learn More
+            // Generate HTML content with links to CSS files
+            let htmlContent = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>EPUB to HTML</title>';
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+            // Add link to each CSS file in the CSS directory
+            const cssFiles = await fsPromises.readdir(cssDir);
+            cssFiles.forEach(async (cssFile) => {
+                htmlContent += `<link rel="stylesheet" href="${path.join(cssDir, cssFile)}">`;
+            });
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+            htmlContent += '</head><body>';
 
-### Code Splitting
+            // Extract and append HTML content
+            for (const id of book.flow) {
+                const chapter = await new Promise((resolve, reject) => {
+                    book.getChapter(id.id, (err, text) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve(text);
+                        }
+                    });
+                });
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+                htmlContent += `<div>${chapter}</div>`;
+            }
 
-### Analyzing the Bundle Size
+            htmlContent += '</body></html>';
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+            // Write the HTML content to a file
+            const outputHtmlPath = path.join(outputDir, 'output.html');
+            await fsPromises.writeFile(outputHtmlPath, htmlContent);
+            console.log('EPUB converted to HTML successfully');
+        });
 
-### Making a Progressive Web App
+        book.parse();
+    } catch (error) {
+        console.error('Error converting EPUB to HTML:', error);
+    }
+}
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
 
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+// Example usage:
+const epubPath = 'book.epub'; // Replace with the path to your EPUB file
+const outputDir = './output'; // Replace with the desired output directory for HTML file
+const cssDir = './output/css'; // Replace with the desired output directory for CSS files
+convertEpubToHtml(epubPath, outputDir, cssDir);
